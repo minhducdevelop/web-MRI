@@ -109,14 +109,36 @@ Các nút **"Tải danh sách"** và **"In danh sách"** trên thanh công cụ 
 - **In danh sách**: gọi `POST /patients/export-events` để ghi `audit_log` với `action = 'EXPORT'`, sau đó dựng bảng HTML danh sách ca chụp và mở hộp thoại in của trình duyệt.
 - Hoạt động ở cả hai chế độ `mock` và `live`, chỉ dùng dữ liệu giả (`R-03`), cột Tuổi tuân thủ `AgeCalculator` (`~68` khi ngày sinh chỉ biết năm/tháng, `—` khi không có ngày sinh, không bao giờ là `0`).
 
+## Thao tác ghi dữ liệu
+
+| Màn | Gọi endpoint | Ghi chú |
+|---|---|---|
+| **Thêm ca chụp** (`AddStudyModal`) | `POST /patients` → `POST /imaging-orders` | Backend bắt buộc `studies` không rỗng, nên một lần tạo luôn sinh **một chỉ định + một ca chụp**. Bỏ tick "Thêm mới bệnh nhân" để tìm bệnh nhân có sẵn qua `GET /patients` |
+| **Cập nhật ca chụp** (`UpdateStudyModal`) | `PATCH /patients/{id}`, `PATCH /imaging-orders/{id}`, `PATCH /studies/{id}` | Có ô đổi máy chụp và bảng so sánh chỉ gồm trường đã đổi |
+| **Đánh dấu đã có ảnh** (T2) · **Hủy ca** (T10) | `POST /studies/{id}/transitions` | Nút ở `PatientPanel`, chỉ hiện khi ca `SCHEDULED` |
+| **Cập nhật từ HIS** | `GET /imaging-orders`, `GET /patients` | Chỉ **tra cứu**; nút "Cập nhật" khóa vì chưa có endpoint đồng bộ HIS (H-03 [HOÃN]) |
+
+Mã lỗi backend được dịch sang câu người dùng đọc được trong `features/studies/components/AddStudyModal.tsx`
+(`messageFor`): `409 PATIENT_DUPLICATE_CODE`, `409 PATIENT_SUSPECTED_DUPLICATE`, `400 VALIDATION_ERROR`,
+`403`. Không có quyền thì **không gọi API** — nút bị khóa từ trước.
+
+## Quyền hiển thị nút
+
+`src/shared/lib/auth.ts` là nguồn duy nhất, khớp `doc/06b-ui-permission-spec.md` mục 1.
+`src/shared/lib/auth.test.ts` **khóa bảng này lại**: ma trận 16 permission × 5 vai trò và bảng
+T2–T10 được chép tay từ tài liệu, nên sửa code mà quên sửa tài liệu (hoặc ngược lại) là test đỏ.
+
+```bash
+npm run test
+```
+
 ## Chưa làm
 
-- Nút **"Xem ảnh"** mở OHIF (IN-23) — kế hoạch bố cục ở `doc/16-fe-viewer-entry-points.md`,
-  chờ backend thêm endpoint trả URL viewer để ghi được `VIEW_IMAGE`.
-- Màn **audit log** (IN-15) và **quản lý người dùng**.
-- Gửi form **Thêm ca chụp** và **Cập nhật ca chụp** lên API (hiện mới có giao diện).
-- Sửa `shared/lib/auth.ts` cho khớp `doc/06-rbac-matrix.md` mục 6 (bỏ `ADMIN` khỏi `report.write`
-  và `report.approve`, thêm `APPROVER` vào `study.reopen`, thêm `study.cancel`/`study.release`/
-  `conflict.resolve`/`audit.view`) — là task riêng, chưa làm ở đợt này.
+- Màn **audit log** (IN-15, `audit.view`), **quản lý người dùng**, màn **"Danh sách lệch dữ liệu"**
+  (`conflict.resolve`) và nút **"Giải phóng khóa mềm"** (`study.release`) — xem
+  `doc/06b-ui-permission-spec.md` mục 3.
+- `PATCH /studies/{id}` đã có trong `openapi.yaml` và mock server, nhưng **backend chưa cài**
+  (KAN-34) — ở chế độ `live` phần đổi máy chụp sẽ báo chưa lưu được.
 - Lọc theo **Chỉ định** và **Bộ phận chụp** hiện lọc phía client trên trang đang xem, vì
-  `GET /studies` chưa có tham số tương ứng trong `openapi.yaml` v0.1.
+  `GET /studies` chưa có tham số tương ứng trong `openapi.yaml`.
+- Chế độ `live` vẫn **chưa đăng nhập được**: backend chưa có `/auth/login`.

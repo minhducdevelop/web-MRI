@@ -208,10 +208,17 @@ function SystemConfigMenu({ open, onClose, onAddPatient, onExportAll, onPrintAll
         >
           In toàn bộ danh sách
         </Button>
+        {/*
+          Luôn khóa: duyệt hàng loạt là chức năng phụ H-05 [HOÃN] (doc/01-scope.md mục 4), chưa có
+          endpoint nào. Thêm nữa popover này chỉ mở được bằng `config.system` (chỉ ADMIN), mà ADMIN
+          không có `report.approve` sau khi đồng bộ T30 (D15: ADMIN không đọc, không duyệt) — nên
+          nút này không vai trò nào bấm được. Ghi rõ lý do thay vì để tooltip "cần vai trò BS duyệt"
+          gây hiểu nhầm là chỉ thiếu quyền.
+        */}
         <Button
           variant="outline" block icon={<Check size={13} />}
-          disabled={!can(user, 'report.approve')}
-          title={can(user, 'report.approve') ? undefined : deniedReason('report.approve')}
+          disabled
+          title="Duyệt hàng loạt là chức năng phụ H-05, còn [HOÃN] — chưa có endpoint"
         >
           Duyệt toàn bộ danh sách
         </Button>

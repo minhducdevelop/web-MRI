@@ -1,9 +1,7 @@
 import { api } from '@/shared/api/client'
-import type {
-  ReportDto, ReportWriteDto, StatusHistoryEntryDto, TransitionRequestDto, TransitionResultDto,
-} from '@/shared/api/dto'
-import { toReport, toStatusHistoryEntry, toStudy } from '@/shared/api/mappers'
-import type { Report, StatusHistoryEntry, Study, StudyStatus } from '@/shared/lib/types'
+import type { ReportDto, ReportWriteDto, StatusHistoryEntryDto } from '@/shared/api/dto'
+import { toReport, toStatusHistoryEntry } from '@/shared/api/mappers'
+import type { Report, StatusHistoryEntry } from '@/shared/lib/types'
 
 /** `GET /studies/{id}/reports/current` — bản có `version` lớn nhất. */
 export async function fetchCurrentReport(studyId: number, signal?: AbortSignal): Promise<Report | null> {
@@ -31,30 +29,11 @@ export async function saveReportDraft(studyId: number, body: ReportWriteDto): Pr
   return toReport(dto)
 }
 
-export interface TransitionResult {
-  study: Study
-  historyEntry: StatusHistoryEntry
-  report: Report | null
-}
-
-/** `POST /studies/{id}/transitions` — chuyển trạng thái, backend kiểm vai trò và điều kiện. */
-export async function transitionStudy(
-  studyId: number,
-  toStatus: StudyStatus,
-  reason: string | null,
-): Promise<TransitionResult> {
-  const body: TransitionRequestDto = { to_status: toStatus, reason }
-  const dto = await api.request<TransitionResultDto>({
-    method: 'POST',
-    path: `/studies/${studyId}/transitions`,
-    body,
-  })
-  return {
-    study: toStudy(dto.study),
-    historyEntry: toStatusHistoryEntry(dto.history_entry),
-    report: dto.report ? toReport(dto.report) : null,
-  }
-}
+// Chuyển trạng thái là vòng đời của **ca chụp**, không riêng gì báo cáo (T2 và T10 không đụng tới
+// báo cáo), nên bản cài đặt nằm ở `features/studies/api/studiesApi.ts`. Xuất lại ở đây để
+// `useStudyReport` và các chỗ đang import từ `reportApi` không phải sửa.
+export { transitionStudy } from '@/features/studies/api/studiesApi'
+export type { TransitionResult } from '@/features/studies/api/studiesApi'
 
 /** `GET /studies/{id}/status-history` (IN-06). */
 export async function fetchStatusHistory(studyId: number, signal?: AbortSignal): Promise<StatusHistoryEntry[]> {

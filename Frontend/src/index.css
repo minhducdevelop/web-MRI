@@ -36,6 +36,8 @@
   --color-st-docxong: #0891b2;
   --color-st-dangduyet: #d97706;
   --color-st-duyetxong: #057a55;
+  /* Ca đã hủy (T10) — xám đậm hơn "Chờ thực hiện" để phân biệt nhưng không gây chú ý như lỗi. */
+  --color-st-huy: #4b5563;
 
   --color-danger: #e02424;
   --color-success: #0e9f6e;

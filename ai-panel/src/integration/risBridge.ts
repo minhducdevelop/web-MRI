@@ -86,8 +86,12 @@ export interface RisBridge {
    * chỉ CHUYỂN TIẾP event qua cùng cơ chế với `sendDraftToReportForm`, để phía RIS (đang có
    * session bác sĩ) tự gọi API audit thật của nó. Khi không chuyển tiếp được, chỉ log ra
    * console kèm TODO — không throw, không chặn luồng UI.
+   *
+   * Trả về `RisBridgeResult` (cùng hình dạng với `sendDraftToReportForm`) để UI biết CHẮC là
+   * event đã chuyển tiếp được hay chưa, thay vì âm thầm coi như đã ghi — bác sĩ cần thấy rõ nếu
+   * hành động của mình KHÔNG vào được audit log.
    */
-  logAiAction(action: AiAuditAction, detail: AiAuditDetail): void
+  logAiAction(action: AiAuditAction, detail: AiAuditDetail): RisBridgeResult
 }
 
 const RIS_MESSAGE_TYPE = 'vr-ris-pacs/ai-panel-draft-handoff'
@@ -136,6 +140,13 @@ export function createWindowOpenerRisBridge(risOrigin: string): RisBridge {
         // TODO(H-04 / endpoint audit AI): khi có cơ chế chuyển tiếp thật (xem 3 hướng đầu file),
         // RIS lắng nghe message này và tự gọi API audit_log của nó bằng session bác sĩ hiện tại.
         console.debug('[AI Panel audit — stub, chưa chuyển tiếp được tới RIS]', action, detail)
+      }
+      return {
+        delivered,
+        channel: delivered ? 'postMessage' : 'none',
+        message: delivered
+          ? 'Đã ghi nhận vào audit log.'
+          : 'KHÔNG tự ghi được vào audit log (chưa chuyển tiếp được sang tab RIS — xem integration/risBridge.ts). Hành động mới chỉ hiện trong phiên AI Panel này.',
       }
     },
   }

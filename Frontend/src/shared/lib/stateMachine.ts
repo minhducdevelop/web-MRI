@@ -6,8 +6,10 @@ import type { StudyStatus } from './types'
  * Nguồn: `doc/03-state-machine.md` mục 2.2 và 2.5, đối chiếu `doc/06-rbac-matrix.md` mục 4 (T1–T10).
  * Backend luôn kiểm lại — Frontend chỉ ẩn/khóa nút (`doc/06` mục 1).
  *
- * T10 (`SCHEDULED → CANCELLED`) chưa có ở đây vì `CANCELLED` còn ❓, chưa nằm trong
- * `enu.StudyStatus` của backend.
+ * T10 (`SCHEDULED → CANCELLED`) đã có từ 2026-11-12: `enu.StudyStatus` của backend nay có
+ * `CANCELLED`. Điều kiện của T10 vẫn còn ❓ ở `doc/03-state-machine.md` mục 2.2 — Frontend chỉ
+ * ẩn/khóa nút và bắt nhập lý do, backend là nơi chốt (ví dụ từ chối khi ca đã có
+ * `study_instance_uid`, RBAC-12).
  */
 export interface Transition {
   code: string
@@ -28,6 +30,7 @@ export const TRANSITIONS: Transition[] = [
   { code: 'T7', from: 'APPROVING', to: 'APPROVED', label: 'Duyệt', permission: 'report.approve' },
   { code: 'T8', from: 'APPROVING', to: 'READING', label: 'Trả lại để sửa', permission: 'report.approve', exceptional: true },
   { code: 'T9', from: 'APPROVED', to: 'READING', label: 'Mở lại ca', permission: 'study.reopen', exceptional: true },
+  { code: 'T10', from: 'SCHEDULED', to: 'CANCELLED', label: 'Hủy ca', permission: 'study.cancel', exceptional: true },
 ]
 
 export function transitionsFrom(status: StudyStatus): Transition[] {

@@ -159,4 +159,35 @@
 }
 .retry-btn:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
 
-.handoff-note { font-size: 11px; color: var(--text-placeholder); margin: -2px 0 0; }
+.status-note {
+  font-size: 11px; line-height: 1.5; margin: -2px 0 0; padding: 7px 9px; border-radius: 6px;
+  white-space: pre-line;
+}
+.status-note.success { background: var(--bg-success); color: var(--success-600); }
+.status-note.warning { background: var(--bg-warning); color: var(--warning-600); }
+
+/*
+ * Toast — góc trên-phải VIEWPORT (không phải góc của khung AI Panel 320px), để không bị cắt khi
+ * panel đóng/thu gọn và để bác sĩ thấy ngay dù đang nhìn ảnh ở giữa màn hình. `position: fixed`
+ * + z-index cao hơn khung panel/topbar OHIF điển hình.
+ */
+.toast-stack {
+  position: fixed; top: 16px; right: 16px; z-index: 2147483000;
+  display: flex; flex-direction: column; gap: 8px; max-width: 320px;
+  font-family: var(--font);
+}
+.toast {
+  display: block; width: 100%; text-align: left; font-size: 12.5px; line-height: 1.5;
+  padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid transparent;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .35); cursor: pointer; white-space: pre-line;
+  animation: ai-panel-toast-in .18s ease-out;
+}
+.toast.success { background: var(--bg-success); color: var(--success-600); border-color: var(--success-600); }
+.toast.warning { background: var(--bg-warning); color: var(--warning-600); border-color: var(--warning-600); }
+@keyframes ai-panel-toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}

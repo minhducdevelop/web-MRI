@@ -9,6 +9,7 @@ import type {
   ClinicalSnapshotDto, LoginResponseDto, PageDto, ReportDto, ReportWriteDto, StatusCountsDto,
   StatusHistoryEntryDto, StudyDto, TransitionRequestDto, TransitionResultDto, WorklistRowDto,
 } from '../dto'
+import { TRANSITIONS } from '@/shared/lib/stateMachine'
 import type { ReportStatus, StudyStatus } from '@/shared/lib/types'
 import {
   CLINICAL_SNAPSHOTS, DEMO_PASSWORD, DEPARTMENTS, DEVICES, IMAGING_ORDERS, PATIENTS, REPORTS,
@@ -22,12 +23,17 @@ const delay = () => new Promise<void>(resolve => setTimeout(resolve, LATENCY_MS)
 
 /* --------------------------------------------------------------- Trạng thái */
 
-// Bản sao có thể sửa: thao tác trong phiên (chuyển trạng thái, lưu nháp) ghi vào đây.
+// Bản sao có thể sửa: thao tác trong phiên (tạo bệnh nhân, chuyển trạng thái, lưu nháp) ghi vào đây.
+const patients = PATIENTS.map(p => ({ ...p }))
+const orders = IMAGING_ORDERS.map(o => ({ ...o }))
 const studies = STUDIES.map(s => ({ ...s }))
 const reports = REPORTS.map(r => ({ ...r }))
 const history = STATUS_HISTORY.map(h => ({ ...h }))
 let historySeq = history.length + 1
 let reportSeq = reports.length + 1
+let patientSeq = patients.length + 1
+let orderSeq = orders.length + 1
+let studySeq = studies.length + 1
 let currentUserId: number | null = null
 
 /* ------------------------------------------------------------------ Tiện ích */
@@ -47,7 +53,7 @@ function ageOf(dob: string | null, precision: string): { age: number | null; app
 }
 
 function patientDto(id: number) {
-  const p = PATIENTS.find(x => x.id === id)!
+  const p = patients.find(x => x.id === id)!
   const { age, approximate } = ageOf(p.date_of_birth ?? null, p.dob_precision)
   return { ...p, age, age_approximate: approximate }
 }
@@ -59,7 +65,7 @@ function currentReportOf(studyId: number): ReportDto | undefined {
 }
 
 function rowOf(study: StudyDto): WorklistRowDto {
-  const order = IMAGING_ORDERS.find(o => o.id === study.order_id)!
+  const order = orders.find(o => o.id === study.order_id)!
   const report = currentReportOf(study.id)
   return {
     study,
@@ -202,6 +208,33 @@ function applyTransition(studyId: number, body: TransitionRequestDto): Transitio
   const to = body.to_status
   const actor = userRef(currentUserId!)
   const now = new Date().toISOString()
+  const transition = TRANSITIONS.find(t => t.from === from && t.to === to)
+
+  if (!transition) {
+    throw new ApiError(
+      422, 'STUDY_INVALID_TRANSITION',
+      `Không chuyển được từ ${from} sang ${to}.`)
+  }
+
+  // Nhánh ngoại lệ (bỏ dở, trả lại, mở lại, hủy) bắt buộc có lý do — SM-11, `openapi.yaml`
+  // ghi rõ "chuỗi chỉ có khoảng trắng bị từ chối".
+  if (transition.exceptional && !body.reason?.trim()) {
+    throw new ApiError(422, 'TRANSITION_REASON_REQUIRED', 'Thao tác này bắt buộc nhập lý do.')
+  }
+
+  // T2: chỉ đánh dấu được khi PACS đã có ảnh, tức là ca đã có `study_instance_uid` (SM-12).
+  if (transition.code === 'T2' && !study.study_instance_uid) {
+    throw new ApiError(
+      422, 'STUDY_NO_DICOM_IMAGE',
+      'Ca chụp chưa có StudyInstanceUID — chưa có ảnh trong PACS để đánh dấu đã nhận.')
+  }
+
+  // T10: chỉ hủy được ca chưa có ảnh (RBAC-12).
+  if (transition.code === 'T10' && study.study_instance_uid) {
+    throw new ApiError(
+      422, 'STUDY_ALREADY_HAS_IMAGE',
+      'Ca chụp đã có ảnh trong PACS nên không hủy được.')
+  }
 
   study.status = to
   if (to === 'READING') {
@@ -257,6 +290,272 @@ function applyTransition(studyId: number, body: TransitionRequestDto): Transitio
   return { study, history_entry: entry, report: report ?? null }
 }
 
+/* --------------------------- Ghi dữ liệu bệnh nhân / chỉ định / ca chụp (Task 7) */
+
+const str = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  return t === '' ? null : t
+}
+
+function requireFields(body: Record<string, unknown>, fields: string[]) {
+  const missing = fields.filter(f => str(body[f]) == null && body[f] == null)
+  if (missing.length) {
+    throw new ApiError(
+      400, 'VALIDATION_ERROR', 'Request không hợp lệ.',
+      missing.map(f => ({ field: f, issue: 'bắt buộc' })))
+  }
+}
+
+function createPatient(body: Record<string, unknown>) {
+  requireFields(body, ['patient_code', 'full_name', 'dob_precision', 'gender'])
+  const code = str(body.patient_code)!
+
+  // Cùng mã lỗi backend trả (service/impl/PatientServiceImpl) để Frontend xử lý giống nhau
+  // ở cả hai chế độ.
+  if (patients.some(p => p.patient_code.toLowerCase() === code.toLowerCase())) {
+    throw new ApiError(409, 'PATIENT_DUPLICATE_CODE', `Mã bệnh nhân "${code}" đã tồn tại.`)
+  }
+  const bhxh = str(body.social_insurance_no)
+  if (bhxh && patients.some(p => p.social_insurance_no === bhxh)) {
+    throw new ApiError(
+      409, 'PATIENT_SUSPECTED_DUPLICATE',
+      `Mã BHXH "${bhxh}" đã gắn với một bệnh nhân khác — cần đối chiếu trước khi tạo.`)
+  }
+
+  const created = {
+    id: patientSeq++,
+    patient_code: code,
+    his_patient_id: null,
+    full_name: str(body.full_name)!,
+    date_of_birth: str(body.date_of_birth),
+    dob_precision: (str(body.dob_precision) ?? 'DAY') as 'DAY' | 'MONTH' | 'YEAR',
+    gender: (str(body.gender) ?? 'U') as 'M' | 'F' | 'O' | 'U',
+    social_insurance_no: bhxh,
+    phone: str(body.phone),
+    address: str(body.address),
+    health_check_code: null,
+  }
+  patients.push(created)
+  return patientDto(created.id)
+}
+
+function updatePatient(patientId: number, body: Record<string, unknown>) {
+  const patient = patients.find(p => p.id === patientId)
+  if (!patient) throw new ApiError(404, 'PATIENT_NOT_FOUND', 'Không tìm thấy bệnh nhân.')
+
+  // PATCH là cập nhật từng phần: chỉ ghi đè trường thực sự được gửi lên.
+  if ('full_name' in body && str(body.full_name)) patient.full_name = str(body.full_name)!
+  if ('date_of_birth' in body) patient.date_of_birth = str(body.date_of_birth)
+  if ('dob_precision' in body && str(body.dob_precision)) {
+    patient.dob_precision = str(body.dob_precision) as 'DAY' | 'MONTH' | 'YEAR'
+  }
+  if ('gender' in body && str(body.gender)) patient.gender = str(body.gender) as 'M' | 'F' | 'O' | 'U'
+  if ('social_insurance_no' in body) patient.social_insurance_no = str(body.social_insurance_no)
+  if ('phone' in body) patient.phone = str(body.phone)
+  if ('address' in body) patient.address = str(body.address)
+  return patientDto(patient.id)
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+function nextOrderCode(now: Date) {
+  const prefix = `PH${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`
+  const seq = orders.filter(o => o.order_code.startsWith(prefix)).length + 1
+  return `${prefix}${String(seq).padStart(3, '0')}`
+}
+
+function nextAccessionNumber(now: Date) {
+  const prefix = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`
+  const seq = studies.filter(s => s.accession_number.startsWith(prefix)).length + 1
+  return `${prefix}${String(seq).padStart(5, '0')}`
+}
+
+function buildStudy(orderId: number, body: Record<string, unknown>): StudyDto {
+  const serviceItemId = Number(body.service_item_id)
+  if (!SERVICE_ITEMS.some(s => s.id === serviceItemId)) {
+    throw new ApiError(422, 'STUDY_SERVICE_ITEM_NOT_FOUND', 'Dịch vụ chụp không tồn tại.')
+  }
+  const deviceId = body.device_id == null ? null : Number(body.device_id)
+  if (deviceId != null && !DEVICES.some(d => d.id === deviceId)) {
+    throw new ApiError(422, 'STUDY_DEVICE_NOT_FOUND', 'Máy chụp không tồn tại.')
+  }
+  const now = new Date()
+  const study: StudyDto = {
+    id: studySeq++,
+    accession_number: nextAccessionNumber(now),
+    order_id: orderId,
+    service_item_id: serviceItemId,
+    device_id: deviceId,
+    status: 'SCHEDULED',
+    study_instance_uid: null,
+    scheduled_at: str(body.scheduled_at) ?? now.toISOString(),
+    started_at: null,
+    completed_at: null,
+    due_at: null,
+    performed_by: null,
+    reading_user: null,
+    approving_user: null,
+  }
+  studies.push(study)
+  history.push({
+    id: historySeq++,
+    study_id: study.id,
+    from_status: null,
+    to_status: 'SCHEDULED',
+    changed_by: userRef(currentUserId!),
+    changed_at: now.toISOString(),
+    reason: null,
+    note: null,
+  })
+  return study
+}
+
+function createImagingOrder(body: Record<string, unknown>) {
+  requireFields(body, ['patient_id', 'ordering_department_id', 'ordering_doctor_name', 'patient_class'])
+  const patientId = Number(body.patient_id)
+  if (!patients.some(p => p.id === patientId)) {
+    throw new ApiError(422, 'IMAGING_ORDER_PATIENT_NOT_FOUND', 'Bệnh nhân không tồn tại.')
+  }
+  const departmentId = Number(body.ordering_department_id)
+  if (!DEPARTMENTS.some(d => d.id === departmentId)) {
+    throw new ApiError(422, 'IMAGING_ORDER_DEPARTMENT_NOT_FOUND', 'Khoa chỉ định không tồn tại.')
+  }
+  const studyBodies = Array.isArray(body.studies) ? (body.studies as Record<string, unknown>[]) : []
+  if (studyBodies.length === 0) {
+    throw new ApiError(
+      400, 'VALIDATION_ERROR', 'Chỉ định phải có ít nhất một ca chụp.',
+      [{ field: 'studies', issue: 'không được rỗng' }])
+  }
+
+  const now = new Date()
+  const order = {
+    id: orderSeq++,
+    order_code: nextOrderCode(now),
+    patient_id: patientId,
+    visit_code: str(body.visit_code),
+    source: 'MANUAL' as const,
+    his_order_id: null,
+    sync_status: 'NOT_SYNCED' as const,
+    ordering_department_id: departmentId,
+    ordering_doctor_name: str(body.ordering_doctor_name)!,
+    patient_class: (str(body.patient_class) ?? 'OUTPATIENT') as 'INPATIENT' | 'OUTPATIENT',
+    room: str(body.room),
+    bed: str(body.bed),
+    clinical_diagnosis: str(body.clinical_diagnosis),
+    ordered_at: str(body.ordered_at) ?? now.toISOString(),
+  }
+  orders.push(order)
+  for (const sb of studyBodies) buildStudy(order.id, sb)
+  return order
+}
+
+function updateImagingOrder(orderId: number, body: Record<string, unknown>) {
+  const order = orders.find(o => o.id === orderId)
+  if (!order) throw new ApiError(404, 'IMAGING_ORDER_NOT_FOUND', 'Không tìm thấy chỉ định.')
+
+  if ('visit_code' in body) order.visit_code = str(body.visit_code)
+  if ('ordering_doctor_name' in body && str(body.ordering_doctor_name)) {
+    order.ordering_doctor_name = str(body.ordering_doctor_name)!
+  }
+  if ('ordering_department_id' in body && body.ordering_department_id != null) {
+    const departmentId = Number(body.ordering_department_id)
+    if (!DEPARTMENTS.some(d => d.id === departmentId)) {
+      throw new ApiError(422, 'IMAGING_ORDER_DEPARTMENT_NOT_FOUND', 'Khoa chỉ định không tồn tại.')
+    }
+    order.ordering_department_id = departmentId
+  }
+  if ('patient_class' in body && str(body.patient_class)) {
+    order.patient_class = str(body.patient_class) as 'INPATIENT' | 'OUTPATIENT'
+  }
+  if ('room' in body) order.room = str(body.room)
+  if ('bed' in body) order.bed = str(body.bed)
+  if ('clinical_diagnosis' in body) order.clinical_diagnosis = str(body.clinical_diagnosis)
+  return order
+}
+
+function addStudyToOrder(orderId: number, body: Record<string, unknown>) {
+  const order = orders.find(o => o.id === orderId)
+  if (!order) throw new ApiError(404, 'IMAGING_ORDER_NOT_FOUND', 'Không tìm thấy chỉ định.')
+  requireFields(body, ['service_item_id'])
+  return buildStudy(orderId, body)
+}
+
+/** `PATCH /studies/{id}` theo openapi `StudyUpdate`; `status` không đổi được ở đây. */
+function updateStudy(studyId: number, body: Record<string, unknown>) {
+  const study = studies.find(s => s.id === studyId)
+  if (!study) throw new ApiError(404, 'STUDY_NOT_FOUND', 'Không tìm thấy ca chụp.')
+
+  if ('service_item_id' in body && body.service_item_id != null) {
+    const id = Number(body.service_item_id)
+    if (!SERVICE_ITEMS.some(s => s.id === id)) {
+      throw new ApiError(422, 'STUDY_SERVICE_ITEM_NOT_FOUND', 'Dịch vụ chụp không tồn tại.')
+    }
+    study.service_item_id = id
+  }
+  if ('device_id' in body) {
+    const id = body.device_id == null || body.device_id === '' ? null : Number(body.device_id)
+    if (id != null && !DEVICES.some(d => d.id === id)) {
+      throw new ApiError(422, 'STUDY_DEVICE_NOT_FOUND', 'Máy chụp không tồn tại.')
+    }
+    study.device_id = id
+  }
+  if ('scheduled_at' in body && str(body.scheduled_at)) study.scheduled_at = str(body.scheduled_at)!
+  if ('study_instance_uid' in body) study.study_instance_uid = str(body.study_instance_uid)
+  return study
+}
+
+function listImagingOrders(query: Record<string, QueryValue>) {
+  const text = (v: QueryValue) => (v == null ? '' : String(v).trim().toLowerCase())
+  const orderCode = text(query.order_code)
+  const patientCode = text(query.patient_code)
+
+  const matched = orders.filter(o => {
+    if (orderCode && !o.order_code.toLowerCase().includes(orderCode)) return false
+    if (patientCode) {
+      const p = patients.find(x => x.id === o.patient_id)
+      if (!p || !p.patient_code.toLowerCase().includes(patientCode)) return false
+    }
+    return true
+  })
+
+  const page = Number(query.page ?? 1)
+  const pageSize = Number(query.page_size ?? 20)
+  return {
+    page,
+    page_size: pageSize,
+    total: matched.length,
+    items: matched.slice((page - 1) * pageSize, page * pageSize),
+  }
+}
+
+function listPatients(query: Record<string, QueryValue>) {
+  const text = (v: QueryValue) => (v == null ? '' : String(v).trim().toLowerCase())
+  const code = text(query.patient_code)
+  const name = text(query.full_name)
+  const bhxh = text(query.social_insurance_no)
+
+  const matched = patients
+    .filter(p => {
+      if (code && !p.patient_code.toLowerCase().includes(code)) return false
+      if (name && !p.full_name.toLowerCase().includes(name)) return false
+      if (bhxh && !(p.social_insurance_no ?? '').toLowerCase().includes(bhxh)) return false
+      return true
+    })
+    .map(p => patientDto(p.id))
+
+  const page = Number(query.page ?? 1)
+  const pageSize = Number(query.page_size ?? 20)
+  return {
+    page,
+    page_size: pageSize,
+    total: matched.length,
+    items: matched.slice((page - 1) * pageSize, page * pageSize),
+  }
+}
+
 /* ------------------------------------------------------------------- Client */
 
 export function createMockClient(): HttpClient {
@@ -297,6 +596,40 @@ export function createMockClient(): HttpClient {
     if (method === 'GET' && path === '/departments') return DEPARTMENTS
     if (method === 'GET' && path === '/devices') return DEVICES
     if (method === 'GET' && path === '/service-items') return SERVICE_ITEMS
+
+    /* ------------------------------- Ghi dữ liệu: bệnh nhân và chỉ định (Task 7) */
+
+    if (method === 'POST' && path === '/patients') {
+      return createPatient(req.body as Record<string, unknown>)
+    }
+
+    if ((m = matchPath('/patients/:id', path)) && method === 'PATCH') {
+      return updatePatient(Number(m.id), req.body as Record<string, unknown>)
+    }
+
+    if (method === 'POST' && path === '/imaging-orders') {
+      return createImagingOrder(req.body as Record<string, unknown>)
+    }
+
+    if ((m = matchPath('/imaging-orders/:id', path)) && method === 'PATCH') {
+      return updateImagingOrder(Number(m.id), req.body as Record<string, unknown>)
+    }
+
+    if ((m = matchPath('/imaging-orders/:id/studies', path)) && method === 'POST') {
+      return addStudyToOrder(Number(m.id), req.body as Record<string, unknown>)
+    }
+
+    if ((m = matchPath('/studies/:id', path)) && method === 'PATCH') {
+      return updateStudy(Number(m.id), req.body as Record<string, unknown>)
+    }
+
+    if (method === 'GET' && path === '/imaging-orders') {
+      return listImagingOrders(query)
+    }
+
+    if (method === 'GET' && path === '/patients') {
+      return listPatients(query)
+    }
 
     if (method === 'GET' && path === '/studies') return listStudies(query)
 
@@ -360,7 +693,7 @@ export function createMockClient(): HttpClient {
       // qua "?url="), gay loi "No URL was specified" (phat hien bang tay 2026-11-09, xem
       // doc/07-pacs-dicom.md).
       const viewerUrl = `${base.replace(/\/$/, '')}/viewer/${s.study_instance_uid}`
-      const order = IMAGING_ORDERS.find(o => o.id === s.order_id)
+      const order = orders.find(o => o.id === s.order_id)
       console.info('[mock] audit_log VIEW_IMAGE', {
         study_id: s.id,
         patient_id: order?.patient_id ?? 1,
@@ -384,7 +717,7 @@ export function createMockClient(): HttpClient {
     if ((m = matchPath('/patients/:id/print-events', path)) && method === 'POST') {
       // Backend ghi audit_log action PRINT kem patient_id; mock chi ghi ra console de kiem chung.
       const body = req.body as { study_id: number; sections: string[] }
-      const patient = PATIENTS.find(p => p.id === Number(m!.id))
+      const patient = patients.find(p => p.id === Number(m!.id))
       if (!patient) throw new ApiError(404, 'PATIENT_NOT_FOUND', 'Không tìm thấy bệnh nhân.')
       console.info('[mock] audit_log PRINT', {
         patient_id: patient.id,
@@ -402,7 +735,7 @@ export function createMockClient(): HttpClient {
         row_count?: number
         patient_id?: number | null
       }
-      if (body.patient_id != null && !PATIENTS.some(p => p.id === body.patient_id)) {
+      if (body.patient_id != null && !patients.some(p => p.id === body.patient_id)) {
         throw new ApiError(404, 'PATIENT_NOT_FOUND', 'Không tìm thấy bệnh nhân.')
       }
       console.info('[mock] audit_log EXPORT', {
@@ -527,7 +860,7 @@ export function createMockClient(): HttpClient {
         const code = String(query.patient_code ?? '').trim().toLowerCase()
         const name = String(query.full_name ?? '').trim().toLowerCase()
 
-        const matched = PATIENTS.map(p => patientDto(p.id)).filter(p => {
+        const matched = patients.map(p => patientDto(p.id)).filter(p => {
           if (code && !p.patient_code.toLowerCase().includes(code)) return false
           if (name && !p.full_name.toLowerCase().includes(name)) return false
           if (q) {

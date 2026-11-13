@@ -4,8 +4,17 @@
  * Ánh xạ snake_case ↔ camelCase nằm ở `shared/api/mappers.ts`, không rải trong component.
  */
 
-/** 6 mã trạng thái ca chụp theo ERD. `CANCELLED` còn ❓ nên chưa đưa vào (khớp `enu.StudyStatus` của backend). */
-export type StudyStatus = 'SCHEDULED' | 'UNREAD' | 'READING' | 'READ' | 'APPROVING' | 'APPROVED'
+/**
+ * 7 mã trạng thái ca chụp theo ERD, khớp `enu.StudyStatus` của backend.
+ *
+ * `CANCELLED` đã có trong enum backend (giá trị để nhận diện/đếm đủ 7 nhóm ở
+ * `GET /studies/status-counts`), nhưng **nhánh T10** (`SCHEDULED → CANCELLED`) vẫn còn ❓
+ * trong `doc/03-state-machine.md` mục 2.2 — `rule.StudyStateMachine.LINEAR_FLOW` chưa có nhánh
+ * nào đi tới đây. Frontend dựng nút "Hủy ca" theo đề xuất ở `doc/06-rbac-matrix.md` mục 4 (T10),
+ * backend vẫn là nơi chốt điều kiện.
+ */
+export type StudyStatus =
+  | 'SCHEDULED' | 'UNREAD' | 'READING' | 'READ' | 'APPROVING' | 'APPROVED' | 'CANCELLED'
 
 export type Modality = 'CT' | 'MR' | 'CR' | 'DX' | 'US'
 export type Gender = 'M' | 'F' | 'O' | 'U'

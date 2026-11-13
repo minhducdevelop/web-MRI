@@ -90,7 +90,11 @@ src/
    session/JWT của bác sĩ, nên không thể tự ghi `audit_log` của RIS. Hàm này chỉ CHUYỂN TIẾP
    event qua cùng cơ chế ở mục 5 (khi chuyển tiếp được, RIS tự gọi API audit thật bằng session
    của nó); khi không chuyển tiếp được, chỉ `console.debug` kèm TODO — đúng yêu cầu nhiệm vụ
-   ("không bịa endpoint").
+   ("không bịa endpoint"). `logAiAction()` giờ **trả về `RisBridgeResult`** (cùng hình dạng với
+   `sendDraftToReportForm`) và `ReadyState`/`ActionButtons` hiện nó ra UI (`StatusNote`, màu
+   xanh/vàng theo `delivered`) — bác sĩ thấy rõ ngay nếu audit log KHÔNG ghi được, không chỉ
+   console.debug âm thầm như trước. Việc này áp dụng cho cả 3 nút hành động và lần đầu mở khối
+   "Nhãn AI đề xuất" (`AI_SUGGESTION_VIEWED`).
 7. **Mockup gốc không vẽ "Chẩn đoán"/"Khuyến nghị" trong report-box** (chỉ có Kỹ thuật/Mô
    tả/Kết luận) nhưng doc/11 mục 3.2 và yêu cầu nhiệm vụ nói rõ 5 trường — `ReportDraftPreview`
    hiện đủ 5 trường (Kỹ thuật/Mô tả/Chẩn đoán/Kết luận/Khuyến nghị), ưu tiên đúng mô tả văn bản

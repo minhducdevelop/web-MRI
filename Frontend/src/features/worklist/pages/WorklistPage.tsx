@@ -11,7 +11,9 @@ import { UpdateStudyModal } from '@/features/studies/components/UpdateStudyModal
 import { openStudyViewer } from '@/features/studies/api/viewerApi'
 import { useAuth, useCurrentUser } from '@/features/auth/hooks/useAuth'
 import { useAsync } from '@/shared/hooks/useAsync'
-import { can, deniedReason } from '@/shared/lib/auth'
+import { StudyTransitionDialog } from '@/features/studies/components/StudyTransitionDialog'
+import { type Permission, can, deniedReason } from '@/shared/lib/auth'
+import { TRANSITIONS, type Transition } from '@/shared/lib/stateMachine'
 import type { StudyStatus, TimeField, WorklistRow, WorklistTab } from '@/shared/lib/types'
 import { Button, Select, cx } from '@/shared/ui/controls'
 import { Download, Printer, Warning } from '@/shared/ui/Icon'
@@ -88,6 +90,8 @@ export function WorklistPage() {
   const { visible: optionalCols, toggle: toggleOptional } = useOptionalColumns()
   const [columnFilterMode, setColumnFilterMode] = useState(false)
   const [modal, setModal] = useState<null | 'ADD' | 'UPDATE' | 'HIS' | 'CLINICAL' | 'REPORT' | 'PRINT'>(null)
+  // Bước chuyển trạng thái gọi thẳng từ panel (T2 Task 10, T10 Task 9); null = không mở hộp thoại.
+  const [pendingTransition, setPendingTransition] = useState<Transition | null>(null)
   const [busyExport, setBusyExport] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -234,6 +238,21 @@ export function WorklistPage() {
     }
     clearForbidden()
     setModal(target)
+  }
+
+  /**
+   * Mở hộp thoại xác nhận cho một bước chuyển trạng thái. Kiểm quyền ở đây để **không gọi API**
+   * khi vai trò không đủ (tiêu chí Task 7); backend vẫn kiểm lại và trả 403.
+   */
+  const openTransition = (code: string, want: Permission) => {
+    if (!can(user, want)) {
+      reportForbidden(`Không đủ quyền. ${deniedReason(want)}.`)
+      return
+    }
+    const transition = TRANSITIONS.find(t => t.code === code)
+    if (!transition) return
+    clearForbidden()
+    setPendingTransition(transition)
   }
 
   const handleExportList = async (all = false) => {
@@ -420,13 +439,26 @@ export function WorklistPage() {
             onViewImage={() => openStudyViewer(selected.study.id)}
             onReport={() => setModal('REPORT')}
             onPrint={() => openGated('report.print', 'PRINT')}
+            onMarkReceived={() => openTransition('T2', 'study.markReceived')}
+            onCancelStudy={() => openTransition('T10', 'study.cancel')}
           />
         )}
       </div>
 
-      <AddStudyModal open={modal === 'ADD'} onClose={() => setModal(null)} />
-      <UpdateStudyModal open={modal === 'UPDATE'} onClose={() => setModal(null)} row={selected} user={user} />
-      <UpdateFromHisModal open={modal === 'HIS'} onClose={() => setModal(null)} row={selected} />
+      <AddStudyModal
+        open={modal === 'ADD'}
+        onClose={() => setModal(null)}
+        user={user}
+        onCreated={refresh}
+      />
+      <UpdateStudyModal
+        open={modal === 'UPDATE'}
+        onClose={() => setModal(null)}
+        row={selected}
+        user={user}
+        onSaved={refresh}
+      />
+      <UpdateFromHisModal open={modal === 'HIS'} onClose={() => setModal(null)} row={selected} user={user} />
       <ClinicalModal open={modal === 'CLINICAL'} onClose={() => setModal(null)} row={selected} />
       <ReportModal
         open={modal === 'REPORT'}
@@ -436,6 +468,17 @@ export function WorklistPage() {
         onChanged={refresh}
       />
       <PrintModal open={modal === 'PRINT'} onClose={() => setModal(null)} row={selected} user={user} />
+      <StudyTransitionDialog
+        open={pendingTransition != null}
+        onClose={() => setPendingTransition(null)}
+        row={selected}
+        transition={pendingTransition}
+        onDone={() => {
+          // Ca rời tab "Chờ" sau T2/T10 — tải lại cả danh sách lẫn số đếm trạng thái.
+          setSelectedId(null)
+          refresh()
+        }}
+      />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { renderAiPanel, bindAiPanel } from './aiPanelCore';
 import { injectAiPanelStylesOnce } from './aiPanelStyles';
 import { MockAiPanelDataSource } from './aiPanelDataSource';
 import { draftToFields, sendDraftApply, sendDraftDismiss, listenForAck } from './risBridge';
+import { showAiToast } from './aiPanelToast';
 
 // AI Panel that cho OHIF (tab thu 3 "AI" o cot phai, canh Segmentation/Measurements) - port tu
 // ai-panel.html (goc repo), xem khoi comment dau file do de biet nguon Figma + spec day du
@@ -27,6 +28,10 @@ function onAuditEvent(name, payload) {
   console.info('[ai-panel][audit-stub] ' + name, payload);
 }
 
+// Cau toast chung cho "audit stub" o tren - KHONG de bac si tuong nham la da ghi audit_log thuc su
+// (phan biet voi "da gui sang RIS", viec nay THAT lam duoc qua window.opener postMessage).
+const AUDIT_STUB_NOTE = 'Audit log: CHƯA có endpoint ghi audit cho hành động AI ở RIS (doc/11-ai-design.md mục 6.2) — hành động chỉ mới log ở console, chưa vào audit_log.';
+
 class AiPanelHost extends React.Component {
   constructor(props) {
     super(props);
@@ -45,9 +50,11 @@ class AiPanelHost extends React.Component {
       if (ack.ok) {
         // eslint-disable-next-line no-console
         console.info('[ai-panel] RIS da dien gop y vao form bao cao', { studyInstanceUID: ack.studyInstanceUID });
+        showAiToast('success', 'RIS đã nhận và điền gợi ý vào form báo cáo.');
       } else {
         // eslint-disable-next-line no-console
         console.warn('[ai-panel] RIS tu choi gop y AI', { studyInstanceUID: ack.studyInstanceUID, reason: ack.reason });
+        showAiToast('warning', 'RIS đã TỪ CHỐI gợi ý AI' + (ack.reason ? `: ${ack.reason}` : '.'));
       }
     });
   }
@@ -78,23 +85,38 @@ class AiPanelHost extends React.Component {
         const fields = draftToFields(detail && detail.draft);
         const mode = name === 'accept' ? 'use' : 'edit';
         const sent = sendDraftApply(mode, this.studyInstanceUID, fields);
+        const label = name === 'accept' ? 'Dùng gợi ý này' : 'Sửa trước khi dùng';
         if (!sent) {
           // eslint-disable-next-line no-console
           console.warn('[ai-panel] Khong gui duoc AI_DRAFT_APPLY (thieu RIS_ORIGIN, window.opener, hoac studyInstanceUID).');
+          showAiToast('warning', `KHÔNG gửi được nội dung nháp sang RIS ("${label}") — thiếu kết nối tới tab RIS. ${AUDIT_STUB_NOTE}`);
+        } else {
+          showAiToast('success', `Đã gửi nội dung nháp sang RIS ("${label}") — đang chờ bác sĩ lưu ở form báo cáo.\n${AUDIT_STUB_NOTE}`);
         }
         // Khong ghi noi dung nhap day du vao audit (doc/11-ai-design.md muc 6.2) - chi khoa + so luong.
         onAuditEvent(name, { studyInstanceUID: this.studyInstanceUID, fieldKeys: Object.keys(fields), sent });
         break;
       }
-      case 'dismiss':
-        sendDraftDismiss(this.studyInstanceUID);
+      case 'dismiss': {
+        const sentDismiss = sendDraftDismiss(this.studyInstanceUID);
+        showAiToast(
+          sentDismiss ? 'success' : 'warning',
+          (sentDismiss ? 'Đã báo RIS: bỏ qua gợi ý AI.' : 'KHÔNG báo được cho RIS — thiếu kết nối tới tab RIS.') +
+            `\n${AUDIT_STUB_NOTE}`,
+        );
         onAuditEvent(name, detail);
         break;
+      }
       case 'refresh':
         this.load();
         break;
+      case 'suggestion-viewed':
+        showAiToast('warning', `Đã mở "Nhãn AI đề xuất".\n${AUDIT_STUB_NOTE}`);
+        onAuditEvent(name, detail);
+        break;
       default:
-        // toggle-collapse, suggestion-viewed, overlay-toggle, opacity-change
+        // toggle-collapse, overlay-toggle, opacity-change — tuy chinh hien thi, khong phai hanh
+        // dong can bao audit/toast cho bac si.
         onAuditEvent(name, detail);
         break;
     }

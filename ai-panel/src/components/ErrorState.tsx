@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { StatusBadge } from './StatusBadge'
+import { StatusNote } from './StatusNote'
 import { formatDateTime } from '@/lib/format'
 
 /**
@@ -43,9 +44,10 @@ export function ErrorState({
         ↻ Thử phân tích lại
       </button>
       {showPlaceholderNote && (
-        <p className="handoff-note">
-          Chưa có AI Backend thật trong phạm vi đồ án này (H-04, [HOÃN]) — nút này chỉ minh hoạ vị trí, chưa gọi xử lý lại được.
-        </p>
+        <StatusNote
+          kind="warning"
+          message="Chưa có AI Backend thật trong phạm vi đồ án này (H-04, [HOÃN]) — nút này chỉ minh hoạ vị trí, chưa gọi xử lý lại được."
+        />
       )}
     </>
   )

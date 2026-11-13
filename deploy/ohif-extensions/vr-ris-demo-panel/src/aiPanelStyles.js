@@ -187,6 +187,28 @@ export const AI_PANEL_CSS = `
 .ai-actions__row { display: flex; gap: 8px; }
 
 .ai-panel-root [hidden] { display: none !important; }
+
+/* Toast goc tren-phai VIEWPORT - KHONG long trong .ai-panel-root vi phai noi len tren het trang,
+   bam sang ca khi panel dang thu gon/an (xem aiPanelToast.js). */
+.ai-toast-stack {
+  position: fixed; top: 16px; right: 16px; z-index: 2147483000;
+  display: flex; flex-direction: column; gap: 8px; max-width: 320px;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.ai-toast {
+  padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .35); cursor: pointer; white-space: pre-line;
+  border: 1px solid transparent; animation: ai-toast-in .18s ease-out;
+}
+.ai-toast--success { background: #113a26; color: #4ade80; border-color: #4ade80; }
+.ai-toast--warning { background: #3a2a0c; color: #fbbf24; border-color: #fbbf24; }
+@keyframes ai-toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-toast { animation: none; }
+}
 `;
 
 export function injectAiPanelStylesOnce(doc) {

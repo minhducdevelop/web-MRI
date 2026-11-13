@@ -62,7 +62,8 @@ Nguồn đầy đủ: **README mục 0**. Danh sách không được phá nếu 
 
 - React 19 + TypeScript + Vite 7 + Tailwind CSS 4. **Không dùng thư viện UI ngoài** — mọi control (nút, input, select, modal, popover…) tự viết, không thêm Ant Design/TanStack Query/Axios dù README mục 8.2 từng gợi ý vậy (đã ghi nhận lệch ở mục 8.3, giữ nguyên code thực tế, không ép về gợi ý cũ).
 - Cấu trúc: `features/<tên>/{api,hooks,components,pages}` + `shared/{api,lib,ui,hooks}` (`doc/15` mục 7). Component **không** gọi thẳng `fetch`/Axios — chỉ qua hook → tầng `api` của feature → `shared/api`. Alias `@/` trỏ tới `src/`.
-- Kiểu dữ liệu (`src/shared/lib/types.ts`) dùng mã trạng thái **DB/API** ở `doc/02-erd.md` mục 4.5 — đã đổi xong 2026-11-06. `CANCELLED` **chưa thêm** (còn ❓, khớp `enu.StudyStatus` của backend).
+- Kiểu dữ liệu (`src/shared/lib/types.ts`) dùng mã trạng thái **DB/API** ở `doc/02-erd.md` mục 4.5, đủ **7 giá trị kể cả `CANCELLED`** (khớp `enu.StudyStatus` backend, từ 2026-11-12). Điều kiện của T10 vẫn còn ❓ ở `doc/03` mục 2.2 — Frontend chỉ ẩn/khóa nút.
+- Quyền hiển thị nút: `src/shared/lib/auth.ts` là nguồn duy nhất, **được `src/shared/lib/auth.test.ts` khóa vào `doc/06b-ui-permission-spec.md` mục 1** — sửa một bên mà quên bên kia là test đỏ.
 - Hai chế độ chạy: `VITE_API_MODE=mock` (mặc định, mock server trong trình duyệt chép đúng seed V7+V8) và `live` (gọi backend thật). Xem `Frontend/README.md`.
 - Frontend **không phải lớp bảo vệ** quyền/điều kiện chuyển trạng thái — backend luôn phải kiểm tra lại, kể cả khi UI đã khóa nút.
 
@@ -74,11 +75,12 @@ Chỉ ghi lệnh đã chạy thử được trong phiên làm việc gần nhấ
 |---|---|---|
 | Bật database (MySQL + Flyway) | `cd database && docker compose up -d` | ✅ (chạy thật trên MySQL 8.4.9, `database/README.md`) |
 | Xem Flyway đã chạy gì | `docker compose logs flyway` (trong `database/`) | ✅ |
-| Build + test backend (ArchUnit + Testcontainers) | `cd Backend && mvn verify` | ✅ (**97/97 test, BUILD SUCCESS**, 2026-11-06 — cần Docker đang chạy) |
+| Build + test backend (ArchUnit + Testcontainers) | `cd Backend && mvn verify` | ✅ (**192/192 test, BUILD SUCCESS**, 2026-11-12 — **phải bật Docker Desktop trước**, nếu không mọi test DAO/controller đỏ với "Could not find a valid Docker environment") |
 | Chạy backend (cần database đã bật) | `cd Backend && mvn spring-boot:run` | Chưa kiểm chứng trong phiên này — theo `Backend/README.md` |
 | Chạy frontend (dev) | `cd Frontend && npm install && npm run dev` | ✅ (2026-11-06, chạy ở chế độ mock mặc định) |
 | Build frontend | `cd Frontend && npm run build` | ✅ (2026-11-06) |
-| Lint frontend | `cd Frontend && npx eslint src` | ✅ (2026-11-06, 0 lỗi) |
+| Lint frontend | `cd Frontend && npx eslint src` | ✅ (2026-11-12, 0 lỗi) |
+| Test frontend (vitest) | `cd Frontend && npm run test` | ✅ (2026-11-12, **42/42**) |
 | Gọi backend thật thay vì mock | `cd Frontend && VITE_API_MODE=live npm run dev` | ⚠️ Chạy được nhưng **chưa đăng nhập được** — backend chưa có `/auth/login` |
 | Xuất sơ đồ Mermaid (`.mmd` → `.png`) | `npx --yes @mermaid-js/mermaid-cli -i "doc/diagrams/<ten>.mmd" -o "doc/diagrams/<ten>.png" -b white -s 2` | ✅ (chạy được trong phiên tạo `doc/08-hl7-message-spec.md` và `doc/10-lien-ket-he-thong.md`, 2026-11-05 — môi trường trước đó từng báo không chạy được, xem `doc/02-erd.md` mục 0; **3 ảnh cũ (`02-erd`, `01-ranh-gioi-he-thong`, `05-state-machine`) vẫn chưa được xuất lại dù lệnh đã chạy được — cần ai đó làm, không tự ý xuất lại ảnh người khác chưa nhờ** |
 
@@ -101,16 +103,16 @@ Chỉ ghi lệnh đã chạy thử được trong phiên làm việc gần nhấ
 
 ## 8. Trạng thái hiện tại
 
-Lấy từ **README mục 7.2** (cập nhật 2026-11-06) — không tự ước đoán, kiểm tra lại mục đó nếu nghi ngờ đã cũ.
+Lấy từ **README mục 7.2** (cập nhật 2026-11-12) — không tự ước đoán, kiểm tra lại mục đó nếu nghi ngờ đã cũ.
 
 | Có rồi | Chưa có |
 |---|---|
-| Frontend **đã nối lớp API** (mock server + chế độ `live`), đăng nhập + chặn route; **nút "Xem ảnh" (IN-23)** ở hàng worklist và tab 3 modal lâm sàng | Màn audit log, quản lý người dùng |
-| Backend: reference-data, patient, imaging-order, study (bản rút gọn) + **in phiếu kết quả** (PDF, audit `PRINT`) + **deep-link OHIF (IN-19)** `GET /studies/{id}/viewer-link` (audit `VIEW_IMAGE`); `mvn verify` xanh **102/102** | Backend: `/auth/login`, worklist đầy đủ (IN-07), report, transitions, RBAC đầy đủ (JWT hiện chỉ đọc claim `roles` thô) |
+| Frontend **đã nối lớp API** (mock server + chế độ `live`), đăng nhập + chặn route; nút "Xem ảnh" (IN-23); **ba modal tạo/sửa đã gửi dữ liệu thật**; nút **"Đánh dấu đã có ảnh" (T2)** và **"Hủy ca" (T10)** | Màn audit log (`audit.view`), quản lý người dùng, màn "Danh sách lệch dữ liệu" (`conflict.resolve`), nút "Giải phóng khóa mềm" (`study.release`) — xem `doc/06b` mục 3 |
+| Backend: reference-data, patient, imaging-order, worklist (IN-07/IN-09), StudyDetail, report (IN-10), clinical-snapshot (IN-11), identity-conflict (IN-05), in phiếu PDF, deep-link OHIF; `mvn verify` xanh **192/192** | Backend: `/auth/login`, **`POST /studies/{id}/transitions`** (KAN-31) và **`PATCH /studies/{id}`** (KAN-34) — cả hai đã có trong `openapi.yaml` và trong mock server, Frontend đã gọi sẵn; RBAC đầy đủ (JWT hiện chỉ đọc claim `roles` thô) |
 | `database/` — MySQL 8.4 + Flyway qua Docker Compose (V1–V8, 14 bảng + seed giả); `deploy/docker/` + `deploy/k8s/` + `deploy/compose/` (đã tích hợp Orthanc + OHIF Viewer) | `kubectl apply` trên cụm thật (mới dựng offline bằng `kubectl kustomize`) |
 | `doc/api/openapi.yaml` (nháp v0.2, 28 endpoint — thêm viewer-link và 2 endpoint in, ❓ chưa chốt) | — |
 | Bộ tài liệu thiết kế 01–16 (đều nháp, xem README mục 6.0 cho trạng thái từng file) | Nhóm xác nhận các bản nháp — chưa file nào ở trạng thái ✅ |
 | `.github/workflows/backend-ci.yml`, `frontend-ci.yml` (file đã có); `Backend/` **đã commit** | Chạy CI thật trên GitHub |
 | — | Design system + wireframe AI Panel trong Figma |
 
-**Lưu ý quan trọng:** bảng trên cập nhật 2026-11-06. `Backend/` nay **đã nằm trong git** (112 file) — ghi chú cũ "chưa commit" không còn đúng. Luôn kiểm tra `git status`/`git log` trước khi giả định trạng thái.
+**Lưu ý quan trọng:** bảng trên cập nhật 2026-11-12. `Backend/` nay **đã nằm trong git** (112 file) — ghi chú cũ "chưa commit" không còn đúng. Luôn kiểm tra `git status`/`git log` trước khi giả định trạng thái.

@@ -36,8 +36,9 @@ export function DemoApp() {
         return result
       },
       logAiAction(action, detail) {
-        base.logAiAction(action, detail)
-        setLog(l => [...l, `[audit] ${action} study_instance_uid=${detail.study_instance_uid}`])
+        const result = base.logAiAction(action, detail)
+        setLog(l => [...l, `[audit] ${action} study_instance_uid=${detail.study_instance_uid} channel=${result.channel} → ${result.message}`])
+        return result
       },
     }
   }, [])

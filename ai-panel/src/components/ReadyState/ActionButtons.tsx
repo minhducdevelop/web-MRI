@@ -2,19 +2,20 @@
  * Ba lựa chọn — đúng mục 4.2 và mục 5.2.5.d của doc/11-ai-design.md. KHÔNG có nút "Lưu" trong
  * AI Panel: lưu luôn là hành động trên form báo cáo chính (`ReportModal`), để `report.origin`
  * được backend RIS tính đúng lúc lưu — AI Panel/client KHÔNG tự khai `origin`.
+ *
+ * Kết quả của thao tác (chuyển nháp sang RIS + ghi audit log) hiện qua TOAST góc trên-phải
+ * (`ReadyState.handoff()` → `onNotify`), không hiện ở đây — xem `components/ToastStack.tsx`.
  */
 export function ActionButtons({
   onUseAsIs,
   onEditBeforeUse,
   onDismiss,
   pending,
-  resultMessage,
 }: {
   onUseAsIs: () => void
   onEditBeforeUse: () => void
   onDismiss: () => void
   pending: boolean
-  resultMessage: string | null
 }) {
   return (
     <div className="actions">
@@ -29,7 +30,6 @@ export function ActionButtons({
           ✕ Bỏ qua gợi ý
         </button>
       </div>
-      {resultMessage && <p className="handoff-note">{resultMessage}</p>}
     </div>
   )
 }
